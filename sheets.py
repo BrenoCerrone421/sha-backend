@@ -53,73 +53,55 @@ def ler_personalidade():
 
 # sheets.py (nova função de busca v5.0)
 
+# sheets.py (Versão 6.0 - Final com Busca Proativa de Produto)
+
 def buscar_resposta_inteligente(mensagem_do_usuario):
     """
-    Versão 5.0: Lógica de busca final. Procura por palavras inteiras e ignora
-    palavras comuns para evitar correspondências falsas.
+    Versão 6.0: Lógica final. Busca proativamente por nomes de produtos na mensagem
+    antes de consultar as diretrizes para outros tipos de pergunta.
     """
-    diretrizes = _ler_aba_como_dicionario("diretrizes")
     mensagem_lower = mensagem_do_usuario.lower()
 
-    # Palavras comuns a serem ignoradas na busca para evitar ruído
-    palavras_ignoradas = {'a', 'o', 'e', 'de', 'do', 'da', 'para', 'com', 'um', 'uma', 'qual', 'quais', 'como', 'voce', 'tem'}
+    # --- BUSCA PROATIVA DE PRODUTOS ---
+    # O agente sempre tentará encontrar um produto primeiro.
+    todos_os_produtos = _ler_aba_como_dicionario("produtos")
+    if todos_os_produtos:
+        melhor_produto_encontrado = None
+        maior_pontuacao = 0
 
-    # --- LÓGICA DE BUSCA DE PRODUTOS (ALTA PRIORIDADE) ---
-    aba_produtos_info = next((regra for regra in diretrizes if regra.get("nome_planilha") == "produtos"), None)
-    if aba_produtos_info:
-        palavras_chave_produto = [palavra.strip() for palavra in aba_produtos_info.get("quando_usar", "").split(',')]
-        if any(chave in mensagem_lower for chave in palavras_chave_produto):
-            todos_os_produtos = _ler_aba_como_dicionario("produtos")
+        for produto_row in todos_os_produtos:
+            nome_produto_lower = produto_row.get("produto", "").lower()
+            if not nome_produto_lower:
+                continue
 
-            # Procura pelo nome do produto que melhor corresponde, ignorando palavras curtas
-            melhor_produto = None
-            maior_correspondencia = 0
+            palavras_no_nome_produto = set(nome_produto_lower.split())
+            palavras_na_mensagem = set(mensagem_lower.split())
 
-            for produto_row in todos_os_produtos:
-                nome_produto = produto_row.get("produto", "").lower()
-                palavras_do_nome_produto = set(nome_produto.split()) - palavras_ignoradas
+            palavras_em_comum = palavras_no_nome_produto.intersection(palavras_na_mensagem)
 
-                # Conta quantas palavras importantes do nome do produto estão na mensagem
-                correspondencia_atual = len([palavra for palavra in palavras_do_nome_produto if palavra in mensagem_lower])
+            pontuacao_atual = len(palavras_em_comum)
 
-                if correspondencia_atual > maior_correspondencia:
-                    maior_correspondencia = correspondencia_atual
-                    melhor_produto = produto_row
+            if pontuacao_atual > maior_pontuacao:
+                maior_pontuacao = pontuacao_atual
+                melhor_produto_encontrado = produto_row
 
-            if melhor_produto:
-                print(f"Produto encontrado pela melhor correspondência: {melhor_produto}")
-                return melhor_produto
+        # Se encontrarmos qualquer correspondência de produto, retornamos
+        if maior_pontuacao > 0:
+            print(f"Busca proativa encontrou o produto: {melhor_produto_encontrado}")
+            return melhor_produto_encontrado
 
-    # --- LÓGICA GENÉRICA PARA OUTRAS ABAS (FAQ, OBJEÇÕES) ---
-    # (Esta parte pode continuar como estava, pois funciona bem para frases)
+    # --- LÓGICA GENÉRICA PARA FAQ/OBJEÇÕES (Se nenhum produto for encontrado) ---
+    diretrizes = _ler_aba_como_dicionario("diretrizes")
     for regra in diretrizes:
-        if regra.get("nome_planilha") == "produtos":
-            continue
         palavras_chave = [palavra.strip() for palavra in regra.get("quando_usar", "").split(',')]
         if any(chave in mensagem_lower for chave in palavras_chave):
             nome_da_aba = regra["nome_planilha"]
             todos_os_dados = _ler_aba_como_dicionario(nome_da_aba)
-            for linha in todos_os_dados:
-                valor_primeira_coluna = list(linha.values())[0].lower()
-                if any(palavra in valor_primeira_coluna for palavra in mensagem_lower.split() if palavra not in palavras_ignoradas):
-                    print(f"Contexto genérico encontrado na aba '{nome_da_aba}': {linha}")
-                    return linha
 
+            # Para FAQ e Objeções, a primeira correspondência é suficiente
+            if todos_os_dados:
+                print(f"Contexto genérico encontrado na aba '{nome_da_aba}': {todos_os_dados[0]}")
+                return todos_os_dados[0]
+
+    print("Nenhum contexto específico foi encontrado por nenhuma das lógicas.")
     return None
-
-# --- NOVA FUNÇÃO RELEVANTE ---
-
-def listar_todos_produtos():
-    """
-    Nova função: Retorna uma lista com o nome de todos os produtos do catálogo.
-    Útil para responder "o que vocês vendem?".
-    """
-    todos_os_produtos = _ler_aba_como_dicionario("produtos")
-    if not todos_os_produtos:
-        return "Parece que nosso catálogo de produtos está vazio no momento."
-    
-    # Extrai apenas os nomes dos produtos da lista de dicionários
-    nomes_dos_produtos = [produto.get("produto", "Produto sem nome") for produto in todos_os_produtos]
-    
-    # Formata a lista para uma string amigável
-    return "Aqui estão nossos produtos: " + ", ".join(nomes_dos_produtos) + "."
