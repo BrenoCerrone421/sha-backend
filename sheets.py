@@ -51,16 +51,18 @@ def ler_personalidade():
         print(f"ERRO ao ler a personalidade: {e}", file=sys.stderr)
         return "Um agente prestativo e simpático." # Retorna uma personalidade padrão em caso de erro
 
+# sheets.py (nova função de busca v5.0)
+
 def buscar_resposta_inteligente(mensagem_do_usuario):
     """
-    Versão 4.0: Lógica de busca final e robusta.
+    Versão 5.0: Lógica de busca final. Procura por palavras inteiras e ignora
+    palavras comuns para evitar correspondências falsas.
     """
     diretrizes = _ler_aba_como_dicionario("diretrizes")
-    if not diretrizes:
-        print("AVISO: A aba 'diretrizes' está vazia ou não foi encontrada.", file=sys.stderr)
-        return None
-
     mensagem_lower = mensagem_do_usuario.lower()
+
+    # Palavras comuns a serem ignoradas na busca para evitar ruído
+    palavras_ignoradas = {'a', 'o', 'e', 'de', 'do', 'da', 'para', 'com', 'um', 'uma', 'qual', 'quais', 'como', 'voce', 'tem'}
 
     # --- LÓGICA DE BUSCA DE PRODUTOS (ALTA PRIORIDADE) ---
     aba_produtos_info = next((regra for regra in diretrizes if regra.get("nome_planilha") == "produtos"), None)
@@ -68,13 +70,28 @@ def buscar_resposta_inteligente(mensagem_do_usuario):
         palavras_chave_produto = [palavra.strip() for palavra in aba_produtos_info.get("quando_usar", "").split(',')]
         if any(chave in mensagem_lower for chave in palavras_chave_produto):
             todos_os_produtos = _ler_aba_como_dicionario("produtos")
+
+            # Procura pelo nome do produto que melhor corresponde, ignorando palavras curtas
+            melhor_produto = None
+            maior_correspondencia = 0
+
             for produto_row in todos_os_produtos:
                 nome_produto = produto_row.get("produto", "").lower()
-                if nome_produto and nome_produto in mensagem_lower:
-                    print(f"Produto encontrado por correspondência exata: {produto_row}")
-                    return produto_row
+                palavras_do_nome_produto = set(nome_produto.split()) - palavras_ignoradas
+
+                # Conta quantas palavras importantes do nome do produto estão na mensagem
+                correspondencia_atual = len([palavra for palavra in palavras_do_nome_produto if palavra in mensagem_lower])
+
+                if correspondencia_atual > maior_correspondencia:
+                    maior_correspondencia = correspondencia_atual
+                    melhor_produto = produto_row
+
+            if melhor_produto:
+                print(f"Produto encontrado pela melhor correspondência: {melhor_produto}")
+                return melhor_produto
 
     # --- LÓGICA GENÉRICA PARA OUTRAS ABAS (FAQ, OBJEÇÕES) ---
+    # (Esta parte pode continuar como estava, pois funciona bem para frases)
     for regra in diretrizes:
         if regra.get("nome_planilha") == "produtos":
             continue
@@ -84,10 +101,10 @@ def buscar_resposta_inteligente(mensagem_do_usuario):
             todos_os_dados = _ler_aba_como_dicionario(nome_da_aba)
             for linha in todos_os_dados:
                 valor_primeira_coluna = list(linha.values())[0].lower()
-                if any(palavra in valor_primeira_coluna for palavra in mensagem_lower.split()):
+                if any(palavra in valor_primeira_coluna for palavra in mensagem_lower.split() if palavra not in palavras_ignoradas):
                     print(f"Contexto genérico encontrado na aba '{nome_da_aba}': {linha}")
                     return linha
-    
+
     return None
 
 # --- NOVA FUNÇÃO RELEVANTE ---
