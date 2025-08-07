@@ -31,45 +31,47 @@ def ler_diretrizes():
 
 def buscar_resposta_inteligente(mensagem_do_usuario):
     """
-    Versão 2.0: Busca pela MELHOR correspondência, não apenas pela primeira.
-    Prioriza palavras-chave mais específicas.
+    Versão 3.0: Implementa uma busca direcionada e exata para produtos,
+    enquanto mantém a busca por palavras-chave para outras seções.
     """
     diretrizes = ler_diretrizes()
     mensagem_lower = mensagem_do_usuario.lower()
 
-    melhor_contexto = None
-    maior_pontuacao = 0
+    # --- LÓGICA DE BUSCA DE PRODUTOS (ALTA PRIORIDADE) ---
+    aba_produtos_info = next((regra for regra in diretrizes if regra["nome_planilha"] == "produtos"), None)
+    if aba_produtos_info:
+        palavras_chave_produto = [palavra.strip() for palavra in aba_produtos_info["quando_usar"].split(',')]
 
-    # NÍVEL 1: Encontrar a planilha correta
+        # Verifica se a mensagem é sobre produtos
+        if any(chave in mensagem_lower for chave in palavras_chave_produto):
+            aba_produtos = planilha.worksheet("produtos")
+            todos_os_produtos = aba_produtos.get_all_records()
+
+            # Procura pelo nome do produto exato na mensagem
+            for produto_row in todos_os_produtos:
+                nome_produto = produto_row["produto"].lower()
+                # Se o nome do produto da planilha (ex: "produto b") estiver na mensagem do usuário
+                if nome_produto in mensagem_lower:
+                    print(f"Produto encontrado por correspondência exata: {produto_row}")
+                    return produto_row # Retorna a linha exata do produto!
+
+    # --- LÓGICA GENÉRICA PARA OUTRAS ABAS (FAQ, OBJEÇÕES) ---
     for regra in diretrizes:
+        if regra["nome_planilha"] == "produtos":
+            continue # Já cuidamos dos produtos, pule esta regra
+
         palavras_chave = [palavra.strip() for palavra in regra["quando_usar"].split(',')]
-        for chave in palavras_chave:
-            if chave in mensagem_lower:
-                # Encontramos uma aba relevante, agora vamos procurar a melhor linha.
-                nome_da_aba = regra["nome_planilha"]
-                aba_alvo = planilha.worksheet(nome_da_aba)
-                todos_os_dados = aba_alvo.get_all_records()
+        if any(chave in mensagem_lower for chave in palavras_chave):
+            nome_da_aba = regra["nome_planilha"]
+            aba_alvo = planilha.worksheet(nome_da_aba)
+            todos_os_dados = aba_alvo.get_all_records()
 
-                # NÍVEL 2: Encontrar a MELHOR linha dentro da planilha
-                for linha in todos_os_dados:
-                    valor_primeira_coluna = list(linha.values())[0].lower()
-
-                    # Calcula uma pontuação de relevância
-                    pontuacao_atual = 0
-                    palavras_na_primeira_coluna = valor_primeira_coluna.split()
-
-                    for palavra in mensagem_lower.split():
-                        if palavra in palavras_na_primeira_coluna:
-                            pontuacao_atual += 1 # Aumenta a pontuação para cada palavra correspondente
-
-                    # Se esta linha for mais relevante que a anterior, salve-a
-                    if pontuacao_atual > maior_pontuacao:
-                        maior_pontuacao = pontuacao_atual
-                        melhor_contexto = linha
-                        print(f"Novo melhor contexto encontrado na aba '{nome_da_aba}': {melhor_contexto} (Pontuação: {maior_pontuacao})")
-
-    if melhor_contexto:
-        return melhor_contexto
+            # Para FAQ e Objeções, a primeira correspondência de palavra-chave ainda é uma boa abordagem
+            for linha in todos_os_dados:
+                valor_primeira_coluna = list(linha.values())[0].lower()
+                if any(palavra in valor_primeira_coluna for palavra in mensagem_lower.split()):
+                    print(f"Contexto genérico encontrado na aba '{nome_da_aba}': {linha}")
+                    return linha
 
     print("Nenhum contexto específico encontrado.")
     return None
