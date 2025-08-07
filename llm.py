@@ -2,7 +2,7 @@
 import os
 import google.generativeai as genai
 
-# Pega a chave da API das variáveis de ambiente que vamos configurar
+# Pega a chave da API das variáveis de ambiente que configuramos no Render
 api_key = os.environ.get("GEMINI_API_KEY")
 
 # Configura a biblioteca do Google AI com a chave
@@ -17,7 +17,7 @@ def gerar_resposta(prompt):
     """
     # Verifica se a chave de API foi carregada. Se não, retorna um erro claro.
     if not api_key:
-        return "ERRO: A chave GEMINI_API_KEY não foi configurada no ambiente."
+        return "ERRO: A chave GEMINI_API_KEY não foi configurada no ambiente do Render."
 
     try:
         # Gera o conteúdo com base no prompt
