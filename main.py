@@ -167,12 +167,15 @@ def receber_mensagem():
 def enviar_resposta(recipient_id, texto_da_resposta):
     print(f"--- ENVIANDO RESPOSTA PARA ({recipient_id}): '{texto_da_resposta}'")
     url_api_meta = f"https://graph.facebook.com/v20.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
-    payload = {"recipient": {"id": recipient_id}, "message": {"text": texto_da_resposta}}
+    payload = {"recipient": {"id": recipient_id}, "message": {"text": texto_da_resposta}, "messaging_type": "RESPONSE"}
     headers = {"Content-Type": "application/json"}
     try:
-        requests.post(url_api_meta, json=payload, headers=headers).raise_for_status()
+        resposta = requests.post(url_api_meta, json=payload, headers=headers)
+        resposta.raise_for_status() # Lança um erro se a resposta não for 200 OK
+        print(f"--- STATUS DA RESPOSTA DA META: {resposta.json()}")
     except requests.exceptions.RequestException as e:
-        print(f"ERRO ao enviar para API da Meta: {e}", file=sys.stderr)
+        # A MUDANÇA ESTÁ AQUI: Este print nos mostrará a mensagem de erro exata da Meta
+        print(f"ERRO AO ENVIAR PARA API DA META: {e.response.text if e.response else e}")
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)
