@@ -27,23 +27,32 @@ def ler_diretrizes():
     aba_diretrizes = planilha.worksheet("diretrizes")
     return aba_diretrizes.get_all_records()
 
-def buscar_resposta(mensagem_do_usuario):
+def buscar_resposta_inteligente(mensagem_do_usuario):
     """
-    Busca na aba 'diretrizes' uma palavra-chave da mensagem do usuário
-    para saber qual outra aba consultar.
+    Busca em duas etapas: primeiro encontra a aba correta usando as diretrizes,
+    depois encontra a linha específica dentro daquela aba.
     """
     diretrizes = ler_diretrizes()
+    palavras_na_mensagem = mensagem_do_usuario.lower().split()
 
+    # NÍVEL 1: Encontrar a planilha correta
     for regra in diretrizes:
-        # Verifica se a palavra-chave da diretriz está na mensagem do usuário
-        if regra["quando_usar"].lower() in mensagem_do_usuario.lower():
-            nome_da_aba = regra["nome_planilha"]
-            aba_alvo = planilha.worksheet(nome_da_aba)
-            dados = aba_alvo.get_all_records()
-            
-            # Por simplicidade, este código inicial retorna a primeira linha de dados
-            # da aba encontrada. Ex: O primeiro produto, a primeira FAQ, etc.
-            # No futuro, isso pode ser melhorado para buscar a linha específica.
-            return dados
-            
-    return None # Retorna None se nenhuma diretriz corresponder
+        palavras_chave = [palavra.strip() for palavra in regra["quando_usar"].split(',')]
+        for chave in palavras_chave:
+            if chave in mensagem_do_usuario.lower():
+                # Encontramos a aba correta! Agora vamos procurar a linha.
+                nome_da_aba = regra["nome_planilha"]
+                aba_alvo = planilha.worksheet(nome_da_aba)
+                todos_os_dados = aba_alvo.get_all_records()
+
+                # NÍVEL 2: Encontrar a linha correta dentro da planilha
+                for linha in todos_os_dados:
+                    # Pega o valor da primeira coluna (ex: 'pergunta', 'produto', 'objeção')
+                    valor_primeira_coluna = list(linha.values())[0]
+                    for palavra in palavras_na_mensagem:
+                        if palavra in valor_primeira_coluna.lower():
+                            print(f"Contexto encontrado na aba '{nome_da_aba}': {linha}")
+                            return linha # Retorna a linha exata que correspondeu!
+
+    print("Nenhum contexto específico encontrado.")
+    return None # Retorna None se nada for encontrado

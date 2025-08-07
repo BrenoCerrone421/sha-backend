@@ -2,7 +2,7 @@
 
 from flask import Flask, request, jsonify
 # Importamos as funções que criamos nos outros arquivos
-from sheets import buscar_resposta, ler_personalidade
+from sheets import buscar_resposta_inteligente, ler_personalidade
 from llm import gerar_resposta
 
 # Cria a aplicação web com Flask
@@ -25,7 +25,7 @@ def receber_mensagem():
 
     # 2. Busca a personalidade e a base de conhecimento na planilha
     personalidade = ler_personalidade()
-    base_conhecimento = buscar_resposta(pergunta_usuario)
+    base_conhecimento = buscar_resposta_inteligente(pergunta_usuario)
 
     # 3. Monta o prompt para a Inteligência Artificial
     # Um bom prompt é a chave para uma boa resposta!
