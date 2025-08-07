@@ -1,55 +1,108 @@
-# main.py
+# main.py (Versão Completa - Fase 2: CRM + Memória Redis)
 
-from flask import Flask, request, jsonify
-# Importamos as funções que criamos nos outros arquivos
-from sheets import buscar_resposta_inteligente, ler_personalidade
+import os
+import requests
+from flask import Flask, request
+
+# Importa as funções dos nossos outros módulos
+from sheets import ler_personalidade, buscar_resposta_inteligente, encontrar_ou_criar_cliente
 from llm import gerar_resposta
+from memoria import carregar_historico, salvar_historico
 
-# Cria a aplicação web com Flask
+# --- INICIALIZAÇÃO E CHAVES SECRETAS ---
 app = Flask(__name__)
 
-@app.route("/mensagem", methods=["POST"])
+# Pega as chaves secretas que configuramos no ambiente do Render
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
+PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+
+
+# --- ROTA PRINCIPAL QUE RECEBE AS MENSAGENS ---
+@app.route("/mensagem", methods=["GET", "POST"])
 def receber_mensagem():
-    """
-    Esta função é o coração do agente. Ela é executada sempre que
-    uma mensagem chega na URL /mensagem.
-    """
-    # 1. Extrai a mensagem do usuário que veio na requisição
-    dados = request.json
-    if not dados or "mensagem" not in dados:
-        return jsonify({"erro": "Nenhuma mensagem enviada."}), 400
+    # Se a requisição for GET, é o desafio de verificação da Meta
+    if request.method == "GET":
+        token_sent = request.args.get("hub.verify_token")
+        if token_sent == VERIFY_TOKEN:
+            return request.args.get("hub.challenge"), 200
+        return 'Token de verificação inválido', 403
+
+    # Se a requisição for POST, é uma mensagem de um usuário
+    if request.method == "POST":
+        dados_entrada = request.json
+        print(f"--- DADO RECEBIDO DA META: {dados_entrada}")
+        try:
+            for entry in dados_entrada.get('entry', []):
+                for message in entry.get('messaging', []):
+                    # Verifica se é uma mensagem de texto padrão
+                    if 'message' in message and 'text' in message['message'] and 'is_echo' not in message['message']:
+                        
+                        # --- 1. EXTRAI DADOS BÁSICOS ---
+                        sender_id = message['sender']['id']  # ID do usuário no Instagram/Facebook
+                        pergunta_usuario = message['message']['text']
+                        
+                        # --- 2. LÓGICA DE CRM ---
+                        # Encontra o cliente no CRM_DATA ou cria um novo registro.
+                        # Por enquanto, estamos salvando na coluna "WhatsApp" como padrão.
+                        cliente_crm = encontrar_ou_criar_cliente(sender_id, "Nome de Perfil Provisório", "WhatsApp")
+                        id_cliente_interno = cliente_crm.get('ID_Cliente')
+                        
+                        # --- 3. LÓGICA DE MEMÓRIA (REDIS) ---
+                        historico = carregar_historico(id_cliente_interno)
+                        historico.append({"role": "user", "content": pergunta_usuario})
+                        
+                        # --- 4. CÉREBRO DO AGENTE (BUSCA NA BASE DE CONHECIMENTO) ---
+                        personalidade = ler_personalidade()
+                        base_conhecimento = buscar_resposta_inteligente(pergunta_usuario)
+                        
+                        # --- 5. MONTAGEM DO PROMPT PARA O GEMINI ---
+                        prompt_final = f"""
+                        Sua personalidade é: {personalidade}.
+                        
+                        Aqui está o histórico da sua conversa com o cliente: {historico}.
+                        
+                        Aqui estão os dados que você já sabe sobre este cliente: {cliente_crm}.
+                        
+                        Aqui está um contexto específico que você encontrou na sua base de conhecimento sobre a pergunta dele: {base_conhecimento}.
+
+                        A última pergunta do cliente foi: "{pergunta_usuario}".
+
+                        Com base em TUDO isso, continue a conversa de forma natural e útil. Se a base de conhecimento te deu uma resposta direta, use-a. Se não, use o histórico e a personalidade para responder.
+                        """
+                        
+                        resposta_ia_texto = gerar_resposta(prompt_final)
+                        
+                        # --- 6. ATUALIZA A MEMÓRIA E ENVIA A RESPOSTA ---
+                        historico.append({"role": "model", "content": resposta_ia_texto})
+                        salvar_historico(id_cliente_interno, historico)
+                        
+                        enviar_resposta(sender_id, resposta_ia_texto)
+        
+        except Exception as e:
+            print(f"ERRO ao processar a mensagem: {e}")
+
+        # Responde 200 OK para a Meta para indicar que a mensagem foi recebida
+        return "Message processed", 200
+
+
+# --- FUNÇÃO PARA ENVIAR MENSAGENS DE VOLTA PARA A META ---
+def enviar_resposta(recipient_id, texto_da_resposta):
+    print(f"--- ENVIANDO RESPOSTA PARA ({recipient_id}): '{texto_da_resposta}'")
+    url_api_meta = f"https://graph.facebook.com/v20.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {"text": texto_da_resposta},
+        "messaging_type": "RESPONSE"
+    }
+    headers = {"Content-Type": "application/json"}
     
-    pergunta_usuario = dados["mensagem"]
-    # Adicionamos um print para vermos a mensagem chegando no terminal. Ótimo para depuração!
-    print(f"--- Mensagem Recebida: '{pergunta_usuario}'")
+    try:
+        resposta = requests.post(url_api_meta, json=payload, headers=headers)
+        resposta.raise_for_status() # Lança um erro se a resposta não for 200 OK
+        print(f"--- STATUS DA RESPOSTA DA META: {resposta.json()}")
+    except requests.exceptions.RequestException as e:
+        print(f"ERRO ao enviar mensagem para a API da Meta: {e}")
 
-    # 2. Busca a personalidade e a base de conhecimento na planilha
-    personalidade = ler_personalidade()
-    base_conhecimento = buscar_resposta_inteligente(pergunta_usuario)
-
-    # 3. Monta o prompt para a Inteligência Artificial
-    # Um bom prompt é a chave para uma boa resposta!
-    prompt_final = f"""
-    Sua personalidade é: {personalidade}.
-    O usuário te enviou a seguinte mensagem: "{pergunta_usuario}"
-    Use a seguinte informação de base para formular sua resposta: "{base_conhecimento}"
-    Responda apenas com base nas informações fornecidas.
-    Se a informação de base for 'None' ou vazia, significa que você não encontrou um dado específico sobre a pergunta. Nesse caso, responda de forma simpática que você pode ajudar com dúvidas sobre produtos e preços.
-    """
-    
-    print("--- Prompt Enviado para a IA ---")
-    print(prompt_final)
-    print("---------------------------------")
-
-    # 4. Envia o prompt final para a LLM e obtém a resposta
-    resposta_gerada = gerar_resposta(prompt_final)
-
-    print(f"--- Resposta da IA: '{resposta_gerada}'")
-
-    # 5. Retorna a resposta final para quem chamou a API
-    return jsonify({"resposta": resposta_gerada})
-
-# Esta parte permite que a gente execute o servidor localmente para testes
+# --- INICIA O SERVIDOR ---
 if __name__ == "__main__":
-    # O comando abaixo inicia o servidor. debug=True ajuda a ver erros com mais detalhes.
     app.run(host='0.0.0.0', port=5000, debug=True)
