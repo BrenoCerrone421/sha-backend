@@ -6,3 +6,4 @@ gunicorn
 certifi
 google-generativeai
 pytz
+redis
