@@ -64,7 +64,7 @@ def buscar_resposta_inteligente(mensagem_do_usuario):
         if any(chave in mensagem_lower for chave in palavras_chave):
             nome_da_aba = regra["nome_planilha"]
             aba_alvo = planilha.worksheet(nome_da_aba)
-            todos_os_dados = aba_alvo.get_all_records()
+            todos_os_dados = [dict(zip(lista_de_valores[0], linha)) for linha in lista_de_valores[1:]]
 
             # Para FAQ e Objeções, a primeira correspondência de palavra-chave ainda é uma boa abordagem
             for linha in todos_os_dados:
