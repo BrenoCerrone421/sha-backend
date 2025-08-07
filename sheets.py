@@ -27,32 +27,49 @@ def ler_diretrizes():
     aba_diretrizes = planilha.worksheet("diretrizes")
     return aba_diretrizes.get_all_records()
 
+# sheets.py (nova função de busca v2.0)
+
 def buscar_resposta_inteligente(mensagem_do_usuario):
     """
-    Busca em duas etapas: primeiro encontra a aba correta usando as diretrizes,
-    depois encontra a linha específica dentro daquela aba.
+    Versão 2.0: Busca pela MELHOR correspondência, não apenas pela primeira.
+    Prioriza palavras-chave mais específicas.
     """
     diretrizes = ler_diretrizes()
-    palavras_na_mensagem = mensagem_do_usuario.lower().split()
+    mensagem_lower = mensagem_do_usuario.lower()
+
+    melhor_contexto = None
+    maior_pontuacao = 0
 
     # NÍVEL 1: Encontrar a planilha correta
     for regra in diretrizes:
         palavras_chave = [palavra.strip() for palavra in regra["quando_usar"].split(',')]
         for chave in palavras_chave:
-            if chave in mensagem_do_usuario.lower():
-                # Encontramos a aba correta! Agora vamos procurar a linha.
+            if chave in mensagem_lower:
+                # Encontramos uma aba relevante, agora vamos procurar a melhor linha.
                 nome_da_aba = regra["nome_planilha"]
                 aba_alvo = planilha.worksheet(nome_da_aba)
                 todos_os_dados = aba_alvo.get_all_records()
 
-                # NÍVEL 2: Encontrar a linha correta dentro da planilha
+                # NÍVEL 2: Encontrar a MELHOR linha dentro da planilha
                 for linha in todos_os_dados:
-                    # Pega o valor da primeira coluna (ex: 'pergunta', 'produto', 'objeção')
-                    valor_primeira_coluna = list(linha.values())[0]
-                    for palavra in palavras_na_mensagem:
-                        if palavra in valor_primeira_coluna.lower():
-                            print(f"Contexto encontrado na aba '{nome_da_aba}': {linha}")
-                            return linha # Retorna a linha exata que correspondeu!
+                    valor_primeira_coluna = list(linha.values())[0].lower()
+
+                    # Calcula uma pontuação de relevância
+                    pontuacao_atual = 0
+                    palavras_na_primeira_coluna = valor_primeira_coluna.split()
+
+                    for palavra in mensagem_lower.split():
+                        if palavra in palavras_na_primeira_coluna:
+                            pontuacao_atual += 1 # Aumenta a pontuação para cada palavra correspondente
+
+                    # Se esta linha for mais relevante que a anterior, salve-a
+                    if pontuacao_atual > maior_pontuacao:
+                        maior_pontuacao = pontuacao_atual
+                        melhor_contexto = linha
+                        print(f"Novo melhor contexto encontrado na aba '{nome_da_aba}': {melhor_contexto} (Pontuação: {maior_pontuacao})")
+
+    if melhor_contexto:
+        return melhor_contexto
 
     print("Nenhum contexto específico encontrado.")
-    return None # Retorna None se nada for encontrado
+    return None
