@@ -192,6 +192,35 @@ def enviar_resposta_meta(recipient_id, texto_da_resposta):
     except requests.exceptions.RequestException as e:
         print(f"❌ ERRO ao enviar para API da Meta: {e.response.text if e.response else e}", file=sys.stderr)
 
+def extrair_dados_da_conversa(texto_completo):
+    dados_encontrados = {}
+    email = re.search(r'[\w\.-]+@[\w\.-]+', texto_completo)
+    if email: dados_encontrados['Email_Principal'] = email.group(0)
+    cpf = re.search(r'\d{3}\.\d{3}\.\d{3}-\d{2}', texto_completo)
+    if cpf: dados_encontrados['CPF_CNPJ'] = cpf.group(0)
+    return dados_encontrados
+
+def buscar_resposta_inteligente(mensagem_do_usuario):
+    # Por enquanto, esta função não faz nada, mas precisa existir.
+    # A lógica de fluxos virá aqui no futuro.
+    print("Buscando na base de conhecimento...")
+    return None
+
+def atualizar_dados_cliente(id_cliente, novos_dados):
+    try:
+        aba_crm = planilha.worksheet("CRM_DATA")
+        celula = aba_crm.find(id_cliente, in_column=1)
+        if not celula: return False
+        cabecalhos = aba_crm.row_values(1)
+        for chave, valor in novos_dados.items():
+            if chave in cabecalhos:
+                coluna = cabecalhos.index(chave) + 1
+                aba_crm.update_cell(celula.row, coluna, valor)
+        return True
+    except Exception as e:
+        print(f"ERRO ao atualizar dados do cliente: {e}", file=sys.stderr)
+        return False
+        
 # --- 8. WEBHOOK (O PONTO DE ENTRADA) ---
 @app.route("/mensagem", methods=["GET", "POST"])
 def receber_mensagem():
