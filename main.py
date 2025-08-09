@@ -1,213 +1,123 @@
-# main.py (VERSÃO FINAL "TUDO EM UM" - PRODUÇÃO)
-
+# main.py (VERSÃO FINAL - Z-API + META)
 import os
 import requests
 from flask import Flask, request
-import re
-import gspread
+# ... (todos os outros imports que já tínhamos)
+import json, uuid, re, pytz, gspread, redis, google.generativeai as genai
 from oauth2client.service_account import ServiceAccountCredentials
-import sys
-import uuid
-from datetime import datetime
-import pytz
-import google.generativeai as genai
-import redis
-import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 # --- INICIALIZAÇÃO E CHAVES SECRETAS ---
 app = Flask(__name__)
+# Chaves da Meta
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
+# Chaves do Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# Chaves do Redis
 REDIS_URL = os.environ.get("REDIS_URL")
+# Chaves da Z-API
+ZAPI_INSTANCE_ID = os.environ.get("ZAPI_INSTANCE_ID")
+ZAPI_TOKEN = os.environ.get("ZAPI_TOKEN")
+ZAPI_CLIENT_TOKEN = os.environ.get("ZAPI_CLIENT_TOKEN") # Opcional, mas bom ter
+
+# --- INICIALIZAÇÃO DOS MÓDULOS ---
+# (Todo o código de inicialização do Sheets, Redis, Gemini que já tínhamos)
 planilha = None
 memoria_cache = None
 model = None
-
-# --- MÓDULO DO GOOGLE SHEETS ---
 try:
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_name('service_account.json', scope)
     client = gspread.authorize(creds)
     planilha = client.open("SHA - Base de Conhecimento")
-    print("Conexão com Google Sheets estabelecida com sucesso.")
-except Exception as e:
-    print(f"ERRO CRÍTICO ao conectar com Google Sheets: {e}", file=sys.stderr)
-    sys.exit(1)
-
-# --- MÓDULO DE MEMÓRIA (REDIS) ---
+    print("Conexão com Google Sheets OK.")
+except Exception as e: print(f"ERRO Sheets: {e}")
 try:
     if REDIS_URL:
         memoria_cache = redis.from_url(REDIS_URL, decode_responses=True)
         memoria_cache.ping()
-        print("Conexão com a memória Redis estabelecida com sucesso.")
-except Exception as e:
-    print(f"ERRO CRÍTICO ao conectar com Redis: {e}", file=sys.stderr)
-    memoria_cache = None
-
-# --- MÓDULO DA IA (GEMINI) ---
+        print("Conexão com Redis OK.")
+except Exception as e: print(f"ERRO Redis: {e}")
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         model = genai.GenerativeModel('gemini-1.5-flash')
-        print("Módulo de IA (Gemini) configurado com sucesso.")
-    except Exception as e:
-        print(f"ERRO NA INICIALIZAÇÃO DO GEMINI: {e}", file=sys.stderr)
-        model = None
+        print("Módulo Gemini OK.")
+    except Exception as e: print(f"ERRO Gemini: {e}")
 
-# --- FUNÇÕES DE LÓGICA DO AGENTE ---
+# (Todas as nossas funções de lógica que já criamos antes)
+# _ler_aba_como_dicionario, ler_personalidade, encontrar_ou_criar_cliente,
+# atualizar_dados_cliente, buscar_resposta_inteligente, extrair_dados_da_conversa,
+# carregar_historico, salvar_historico, gerar_resposta
 
-def _ler_aba_como_dicionario(nome_aba):
-    try:
-        aba = planilha.worksheet(nome_aba)
-        return aba.get_all_records()
-    except Exception as e:
-        print(f"ERRO ao ler a aba '{nome_aba}': {e}", file=sys.stderr)
-        return []
-
-def ler_personalidade():
-    try:
-        with open('personalidade.txt', 'r', encoding='utf-8') as f:
-            return f.read().strip()
-    except Exception as e:
-        print(f"ERRO ao ler personalidade.txt: {e}", file=sys.stderr)
-        return "Um agente prestativo e simpático."
-
-def encontrar_ou_criar_cliente(id_canal, nome_social_canal, canal):
-    try:
-        aba_crm = planilha.worksheet("CRM_DATA")
-        todos_os_clientes = aba_crm.get_all_records()
-        coluna_canal = canal # Ex: 'Instagram', 'Facebook', 'WhatsApp'
-        
-        for cliente in todos_os_clientes:
-            if cliente.get(coluna_canal) == str(id_canal):
-                print(f"Cliente encontrado no CRM. ID: {cliente.get('ID_Cliente')}")
-                return cliente
-
-        print("Cliente não encontrado. Criando novo registro no CRM...")
-        id_cliente_novo = str(uuid.uuid4())
-        novo_cliente_dados = {"ID_Cliente": id_cliente_novo, "Nome_Social": nome_social_canal, coluna_canal: str(id_canal)}
-        cabecalhos = aba_crm.row_values(1)
-        nova_linha = [novo_cliente_dados.get(cabecalho, "") for cabecalho in cabecalhos]
-        aba_crm.append_row(nova_linha)
-        return novo_cliente_dados
-    except Exception as e:
-        print(f"ERRO em encontrar_ou_criar_cliente: {e}", file=sys.stderr)
-        return {} # Retorna um dicionário vazio em caso de erro
-
-def atualizar_dados_cliente(id_cliente, novos_dados):
-    try:
-        aba_crm = planilha.worksheet("CRM_DATA")
-        celula = aba_crm.find(id_cliente, in_column=1)
-        if not celula: return False
-        cabecalhos = aba_crm.row_values(1)
-        for chave, valor in novos_dados.items():
-            if chave in cabecalhos:
-                coluna = cabecalhos.index(chave) + 1
-                aba_crm.update_cell(celula.row, coluna, valor)
-        return True
-    except Exception as e:
-        print(f"ERRO ao atualizar dados do cliente: {e}", file=sys.stderr)
-        return False
-
-def buscar_resposta_inteligente(mensagem_do_usuario):
-    # (Aqui está a lógica v7.0 final)
-    return None # Placeholder, a lógica de fluxos virá depois
-
-def extrair_dados_da_conversa(texto_completo):
-    dados_encontrados = {}
-    email = re.search(r'[\w\.-]+@[\w\.-]+', texto_completo)
-    if email: dados_encontrados['Email_Principal'] = email.group(0)
-    cpf = re.search(r'\d{3}\.\d{3}\.\d{3}-\d{2}', texto_completo)
-    if cpf: dados_encontrados['CPF_CNPJ'] = cpf.group(0)
-    return dados_encontrados
-
-def carregar_historico(id_cliente):
-    if not memoria_cache: return []
-    try:
-        historico_json = memoria_cache.get(id_cliente)
-        return json.loads(historico_json) if historico_json else []
-    except Exception as e:
-        print(f"ERRO ao carregar histórico para {id_cliente}: {e}", file=sys.stderr)
-        return []
-
-def salvar_historico(id_cliente, historico_atualizado):
-    if not memoria_cache: return
-    try:
-        historico_json = json.dumps(historico_atualizado)
-        memoria_cache.setex(id_cliente, timedelta(hours=24), historico_json)
-    except Exception as e:
-        print(f"ERRO ao salvar histórico para {id_cliente}: {e}", file=sys.stderr)
-
-def gerar_resposta(prompt):
-    if not model: return "ERRO: O modelo de IA não foi inicializado."
-    try:
-        return model.generate_content(prompt).text
-    except Exception as e:
-        print(f"Erro ao conectar com a API do Gemini: {e}", file=sys.stderr)
-        return "Desculpe, meu cérebro Gemini está fora de sintonia."
-
-def enviar_resposta(recipient_id, texto_da_resposta):
-    print(f"--- ENVIANDO RESPOSTA PARA ({recipient_id}): '{texto_da_resposta}'")
-    url_api_meta = f"https://graph.facebook.com/v20.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
-    payload = {"recipient": {"id": recipient_id}, "message": {"text": texto_da_resposta}, "messaging_type": "RESPONSE"}
-    headers = {"Content-Type": "application/json"}
-    try:
-        resposta = requests.post(url_api_meta, json=payload, headers=headers)
-        resposta.raise_for_status()
-        print(f"--- STATUS DA RESPOSTA DA META: {resposta.json()}")
-    except requests.exceptions.RequestException as e:
-        print(f"ERRO AO ENVIAR PARA API DA META: {e.response.text if e.response else e}")
-
-# --- ROTA PRINCIPAL DO WEBHOOK ---
+# --- ROTA PRINCIPAL DO WEBHOOK (O ROTEADOR) ---
 @app.route("/mensagem", methods=["GET", "POST"])
 def receber_mensagem():
-    if request.method == "GET":
+    if request.method == "GET": # Verificação da Meta
         token_sent = request.args.get("hub.verify_token")
         return (request.args.get("hub.challenge"), 200) if token_sent == VERIFY_TOKEN else ('Token inválido', 403)
 
     if request.method == "POST":
-        try:
-            dados_entrada = request.get_json(force=True, silent=True)
-            if dados_entrada is None: dados_entrada = request.get_data(as_text=True)
-            print(f"--- DADO BRUTO RECEBIDO DA META: {dados_entrada}")
+        dados_entrada = request.json
+        print(f"--- DADO BRUTO RECEBIDO: {dados_entrada}")
 
-            if isinstance(dados_entrada, dict):
-                for entry in dados_entrada.get('entry', []):
-                    for message in entry.get('messaging', []):
-                        if 'message' in message and 'text' in message['message'] and not message['message'].get('is_echo'):
-                            sender_id = message['sender']['id']
-                            pergunta_usuario = message['message']['text']
-                            
-                            cliente_crm = encontrar_ou_criar_cliente(sender_id, "Cliente Instagram", "Instagram")
-                            id_cliente_interno = cliente_crm.get('ID_Cliente')
-                            
-                            historico = carregar_historico(id_cliente_interno)
-                            historico.append({"role": "user", "content": pergunta_usuario})
-                            
-                            dados_extraidos = extrair_dados_da_conversa(pergunta_usuario)
-                            if dados_extraidos:
-                                atualizar_dados_cliente(id_cliente_interno, dados_extraidos)
+        # ROTEADOR: Detecta se a mensagem veio da Z-API ou da Meta
+        if dados_entrada.get("instanceId"):
+            print(">>> Mensagem da Z-API (WhatsApp) detectada.")
+            processar_mensagem_zapi(dados_entrada)
+        elif dados_entrada.get("object") in ["instagram", "page"]:
+            print(">>> Mensagem da Meta (Instagram/Facebook) detectada.")
+            processar_mensagem_meta(dados_entrada)
+        else:
+            print(f"AVISO: Webhook não reconhecido.")
 
-                            personalidade = ler_personalidade()
-                            base_conhecimento = buscar_resposta_inteligente(pergunta_usuario)
-                            
-                            prompt_final = f"""Sua personalidade é: {personalidade}. Histórico da conversa: {historico}. Dados do cliente: {cliente_crm}. Contexto da base de conhecimento: {base_conhecimento}. A última pergunta do cliente foi: \"{pergunta_usuario}\". Responda de forma útil e direta."""
-                            
-                            resposta_ia_texto = gerar_resposta(prompt_final)
-                            
-                            historico.append({"role": "model", "content": resposta_ia_texto})
-                            salvar_historico(id_cliente_interno, historico)
-                            enviar_resposta(sender_id, resposta_ia_texto)
-            else:
-                print("AVISO: Recebido um POST que não era um JSON de mensagem válido. Ignorando.")
+        return "OK", 200
 
-        except Exception as e:
-            print(f"ERRO GERAL ao processar o POST: {e}", file=sys.stderr)
+# --- PROCESSADOR DE MENSAGENS DA Z-API (WHATSAPP) ---
+def processar_mensagem_zapi(dados):
+    try:
+        # Extrai os dados importantes do JSON da Z-API
+        if dados.get("text"):
+            sender_id = dados.get("phone")
+            pergunta_usuario = dados.get("text", {}).get("message")
+            nome_usuario = dados.get("senderName", "Cliente WhatsApp")
 
-        return "Message processed", 200
+            if not sender_id or not pergunta_usuario: return
 
-# --- INICIA O SERVIDOR (APENAS PARA TESTE LOCAL) ---
-if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True)
+            # Lógica de CRM, Memória e IA (a mesma que já temos!)
+            cliente_crm = encontrar_ou_criar_cliente(sender_id, nome_usuario, "WhatsApp")
+            id_cliente_interno = cliente_crm.get('ID_Cliente')
+            historico = carregar_historico(id_cliente_interno)
+            historico.append({"role": "user", "content": pergunta_usuario})
+            # ... (resto da lógica: busca, extração de dados, prompt, etc.)
+            resposta_ia_texto = "Olá do Agente SHA no WhatsApp!" # Resposta de teste
+
+            # Salva o histórico e envia a resposta
+            historico.append({"role": "model", "content": resposta_ia_texto})
+            salvar_historico(id_cliente_interno, historico)
+            enviar_resposta_zapi(sender_id, resposta_ia_texto)
+    except Exception as e:
+        print(f"ERRO ao processar mensagem Z-API: {e}")
+
+# --- PROCESSADOR DE MENSAGENS DA META (INSTAGRAM/FACEBOOK) ---
+def processar_mensagem_meta(dados):
+    # Aqui entra a mesma lógica que já tínhamos para o Instagram
+    pass # Por enquanto, focamos no WhatsApp
+
+# --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API ---
+def enviar_resposta_zapi(numero_destino, texto_da_resposta):
+    print(f"--- ENVIANDO RESPOSTA Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
+    url_api_zapi = f"https://api.z-api.io/v2/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+    payload = {"phone": numero_destino, "message": texto_da_resposta}
+    headers = {"Content-Type": "application/json", "Client-Token": ZAPI_CLIENT_TOKEN}
+
+    try:
+        resposta = requests.post(url_api_zapi, json=payload, headers=headers)
+        resposta.raise_for_status()
+        print(f"--- STATUS DA RESPOSTA DA Z-API: {resposta.json()}")
+    except requests.exceptions.RequestException as e:
+        print(f"ERRO ao enviar para API da Z-API: {e.response.text if e.response else e}")
+
+# ... (cole aqui a função `enviar_resposta` da Meta que já tínhamos) ...
+# ... (cole aqui TODAS as outras funções que estavam no main.py "Tudo em Um") ...
