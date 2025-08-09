@@ -1,4 +1,4 @@
-# main.py (VERSÃO FINAL DE TESTE - SEM CLIENT TOKEN)
+# main.py (VERSÃO FINAL E FUNCIONAL - Z-API + META)
 
 import os
 import requests
@@ -27,12 +27,14 @@ try:
     planilha = client.open("SHA - Base de Conhecimento")
     print("Conexão com Google Sheets OK.")
 except Exception as e: print(f"ERRO CRÍTICO Sheets: {e}", file=sys.stderr)
+
 try:
     if REDIS_URL:
         memoria_cache = redis.from_url(REDIS_URL, decode_responses=True)
         memoria_cache.ping()
         print("Conexão com Redis OK.")
 except Exception as e: print(f"ERRO CRÍTICO Redis: {e}", file=sys.stderr)
+
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
@@ -107,7 +109,7 @@ def processar_mensagem_zapi(dados):
             historico.append({"role": "user", "content": pergunta_usuario})
             
             personalidade = ler_personalidade()
-            base_conhecimento = None
+            base_conhecimento = None # A lógica de busca inteligente e fluxos virá aqui no futuro
             
             prompt_final = f"Sua personalidade é: {personalidade}. Histórico da conversa: {historico}. A última pergunta do cliente foi: \"{pergunta_usuario}\". Responda."
             resposta_ia_texto = gerar_resposta(prompt_final)
@@ -118,7 +120,7 @@ def processar_mensagem_zapi(dados):
     except Exception as e:
         print(f"ERRO ao processar mensagem Z-API: {e}")
 
-# --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API (TESTE SEM CLIENT TOKEN) ---
+# --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API ---
 def enviar_resposta_zapi(numero_destino, texto_da_resposta):
     print(f"--- ENVIANDO RESPOSTA Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
     
@@ -126,11 +128,10 @@ def enviar_resposta_zapi(numero_destino, texto_da_resposta):
     
     payload = {"phone": numero_destino, "message": texto_da_resposta}
     
-    # Cabeçalho SIMPLIFICADO, sem o Client-Token
+    # Cabeçalho final e simplificado, sem o Client-Token.
     headers = { "Content-Type": "application/json" }
     
     try:
-        print(f"Enviando para Z-API (sem Client-Token) com payload: {payload}")
         resposta = requests.post(url_api_zapi, json=payload, headers=headers)
         resposta.raise_for_status()
         print(f"--- STATUS DA RESPOSTA DA Z-API: {resposta.json()}")
@@ -146,7 +147,7 @@ def receber_mensagem():
 
     if request.method == "POST":
         dados_entrada = request.json
-        print(f"--- DADO BRUTO RECEbido: {dados_entrada}")
+        print(f"--- DADO BRUTO RECEBIDO: {dados_entrada}")
         if dados_entrada.get("instanceId"):
             processar_mensagem_zapi(dados_entrada)
         return "OK", 200
