@@ -140,21 +140,22 @@ def processar_mensagem_zapi(dados):
         print(f"ERRO ao processar mensagem Z-API: {e}")
 
 # --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API ---
+# main.py (função enviar_resposta_zapi CORRIGIDA E FINAL)
 def enviar_resposta_zapi(numero_destino, texto_da_resposta):
     print(f"--- ENVIANDO RESPOSTA Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
-    # A URL CORRETA E MAIS ATUAL da Z-API para enviar mensagens de texto
+    
+    # URL CORRETA, BASEADA NA DOCUMENTAÇÃO OFICIAL DO POSTMAN
     url_api_zapi = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
-
+    
     payload = {"phone": numero_destino, "message": texto_da_resposta}
     headers = {"Content-Type": "application/json", "Client-Token": ZAPI_CLIENT_TOKEN}
-
+    
     try:
         resposta = requests.post(url_api_zapi, json=payload, headers=headers)
         resposta.raise_for_status()
         print(f"--- STATUS DA RESPOSTA DA Z-API: {resposta.json()}")
     except requests.exceptions.RequestException as e:
         print(f"ERRO ao enviar para API da Z-API: {e.response.text if e.response else e}")
-
 # (A função enviar_resposta da Meta pode ficar aqui para o futuro)
 
 if __name__ == "__main__":
