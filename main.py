@@ -1,4 +1,4 @@
-# main.py (VERSÃO FINAL DE DIAGNÓSTICO)
+# main.py (VERSÃO FINAL DE TESTE - SEM CLIENT TOKEN)
 
 import os
 import requests
@@ -15,7 +15,6 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 REDIS_URL = os.environ.get("REDIS_URL")
 ZAPI_INSTANCE_ID = os.environ.get("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.environ.get("ZAPI_TOKEN")
-ZAPI_CLIENT_TOKEN = os.environ.get("ZAPI_CLIENT_TOKEN")
 planilha = None
 memoria_cache = None
 model = None
@@ -28,14 +27,12 @@ try:
     planilha = client.open("SHA - Base de Conhecimento")
     print("Conexão com Google Sheets OK.")
 except Exception as e: print(f"ERRO CRÍTICO Sheets: {e}", file=sys.stderr)
-
 try:
     if REDIS_URL:
         memoria_cache = redis.from_url(REDIS_URL, decode_responses=True)
         memoria_cache.ping()
         print("Conexão com Redis OK.")
 except Exception as e: print(f"ERRO CRÍTICO Redis: {e}", file=sys.stderr)
-
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
@@ -75,7 +72,7 @@ def encontrar_ou_criar_cliente(id_canal, nome_social, canal):
     except Exception as e:
         print(f"ERRO em encontrar_ou_criar_cliente: {e}", file=sys.stderr)
         return {}
-
+    
 def carregar_historico(id_cliente):
     if not memoria_cache: return []
     try:
@@ -96,16 +93,14 @@ def gerar_resposta(prompt):
         print(f"Erro na API do Gemini: {e}", file=sys.stderr)
         return "Desculpe, meu cérebro Gemini está fora de sintonia."
 
-# --- PROCESSADOR DE MENSAGENS DA Z-API (WHATSAPP) ---
 def processar_mensagem_zapi(dados):
     try:
         if dados.get("text") and not dados.get("fromMe"):
             sender_id = dados.get("phone")
             pergunta_usuario = dados.get("text", {}).get("message")
             nome_usuario = dados.get("senderName", "Cliente WhatsApp")
-
             if not sender_id or not pergunta_usuario: return
-
+            
             cliente_crm = encontrar_ou_criar_cliente(sender_id, nome_usuario, "WhatsApp")
             id_cliente_interno = cliente_crm.get('ID_Cliente')
             historico = carregar_historico(id_cliente_interno)
@@ -123,20 +118,19 @@ def processar_mensagem_zapi(dados):
     except Exception as e:
         print(f"ERRO ao processar mensagem Z-API: {e}")
 
-# --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API (COM DIAGNÓSTICO) ---
+# --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API (TESTE SEM CLIENT TOKEN) ---
 def enviar_resposta_zapi(numero_destino, texto_da_resposta):
-    print(f"--- PREPARANDO ENVIO Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
+    print(f"--- ENVIANDO RESPOSTA Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
     
     url_api_zapi = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
     
-    # --- LINHA DE DIAGNÓSTICO ---
-    print(f"!!! URL DE DESTINO Z-API SENDO CHAMADA: {url_api_zapi}")
-    # -----------------------------
-    
     payload = {"phone": numero_destino, "message": texto_da_resposta}
-    headers = {"Content-Type": "application/json", "Client-Token": ZAPI_CLIENT_TOKEN}
+    
+    # Cabeçalho SIMPLIFICADO, sem o Client-Token
+    headers = { "Content-Type": "application/json" }
     
     try:
+        print(f"Enviando para Z-API (sem Client-Token) com payload: {payload}")
         resposta = requests.post(url_api_zapi, json=payload, headers=headers)
         resposta.raise_for_status()
         print(f"--- STATUS DA RESPOSTA DA Z-API: {resposta.json()}")
@@ -152,10 +146,9 @@ def receber_mensagem():
 
     if request.method == "POST":
         dados_entrada = request.json
-        print(f"--- DADO BRUTO RECEBIDO: {dados_entrada}")
+        print(f"--- DADO BRUTO RECEbido: {dados_entrada}")
         if dados_entrada.get("instanceId"):
             processar_mensagem_zapi(dados_entrada)
-        # (Lógica para Meta viria aqui)
         return "OK", 200
 
 if __name__ == "__main__":
