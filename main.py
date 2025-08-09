@@ -120,17 +120,18 @@ def gerar_resposta(prompt):
 # --- 4. PROCESSADOR DE MENSAGENS ---
 def processar_mensagem_zapi(dados):
     try:
-        # Evita responder a mensagens enviadas pelo próprio bot
         if dados.get("fromMe"):
             return
         
         sender_id = dados.get("phone")
         nome_usuario = dados.get("senderName", "Cliente WhatsApp")
-        
-        mensagem = dados.get("message", {})
-        pergunta_usuario = mensagem.get("text") if mensagem.get("type") == "chat" else None
+
+        pergunta_usuario = None
+        if dados.get("text") and isinstance(dados["text"], dict):
+            pergunta_usuario = dados["text"].get("message")
         
         if not sender_id or not pergunta_usuario:
+            print("⚠️ Mensagem ignorada: sem número ou texto.")
             return
         
         cliente_crm = encontrar_ou_criar_cliente(sender_id, nome_usuario, "WhatsApp")
