@@ -134,20 +134,48 @@ def gerar_resposta(prompt):
         return "Desculpe, meu cérebro Gemini está temporariamente fora de sintonia."
 
 # --- 7. MÓDULO DE COMUNICAÇÃO (ENVIO DE RESPOSTAS) ---
-def enviar_resposta_zapi(numero_destino, texto_da_resposta):
-    print(f"Enviando resposta para o WhatsApp ({numero_destino})...")
-    if not all([ZAPI_INSTANCE_ID, ZAPI_TOKEN]):
-        print("ERRO: Credenciais da Z-API não configuradas no ambiente.")
-        return
-    url = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
-    payload = {"phone": numero_destino, "message": texto_da_resposta}
-    headers = {"Content-Type": "application/json"}
+def processar_mensagem_zapi(dados):
     try:
-        resposta = requests.post(url, json=payload, headers=headers)
-        resposta.raise_for_status()
-        print(f"Resposta enviada com sucesso via Z-API.")
-    except requests.exceptions.RequestException as e:
-        print(f"❌ ERRO ao enviar para API da Z-API: {e.response.text if e.response else e}", file=sys.stderr)
+        print(">>> [ZAPI-1] Iniciando processamento da mensagem...")
+        if dados.get("text") and not dados.get("fromMe"):
+            sender_id = dados.get("phone")
+            pergunta_usuario = dados.get("text", {}).get("message")
+            nome_usuario = dados.get("senderName", "Cliente WhatsApp")
+
+            if not sender_id or not pergunta_usuario:
+                print(">>> [ZAPI-FALHA] Remetente ou mensagem vazia. Abortando.")
+                return
+
+            print(f">>> [ZAPI-2] Mensagem de '{nome_usuario}' ({sender_id}): '{pergunta_usuario}'")
+            
+            # LÓGICA COMPLETA DO AGENTE
+            cliente_crm = encontrar_ou_criar_cliente(sender_id, nome_usuario, "WhatsApp")
+            id_cliente_interno = cliente_crm.get('ID_Cliente')
+            print(f">>> [ZAPI-3] CRM OK. ID interno: {id_cliente_interno}")
+            
+            historico = carregar_historico(id_cliente_interno)
+            historico.append({"role": "user", "content": pergunta_usuario})
+            print(">>> [ZAPI-4] Memória Redis OK. Histórico carregado e atualizado.")
+            
+            # (A lógica de busca e fluxos virá aqui no futuro)
+            personalidade = ler_personalidade()
+            base_conhecimento = None 
+            
+            prompt_final = f"Sua personalidade é: {personalidade}. Histórico da conversa: {historico}. A última pergunta do cliente foi: \"{pergunta_usuario}\". Responda."
+            print(">>> [ZAPI-5] Prompt final montado com sucesso.")
+
+            resposta_ia_texto = gerar_resposta(prompt_final)
+            print(f">>> [ZAPI-6] Resposta da IA (Gemini) recebida: '{resposta_ia_texto}'")
+            
+            historico.append({"role": "model", "content": resposta_ia_texto})
+            salvar_historico(id_cliente_interno, historico)
+            print(">>> [ZAPI-7] Histórico salvo de volta na memória Redis.")
+            
+            enviar_resposta_zapi(sender_id, resposta_ia_texto)
+            print(">>> [ZAPI-8] Processamento concluído com sucesso.")
+
+    except Exception as e:
+        print(f"❌ ERRO GRAVE ao processar mensagem Z-API: {e}", file=sys.stderr)
 
 def enviar_resposta_meta(recipient_id, texto_da_resposta):
     print(f"Enviando resposta para o Instagram/Facebook ({recipient_id})...")
