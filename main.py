@@ -161,3 +161,4 @@ def salvar_historico(id_cliente, historico_atualizado):
         print(f"ERRO ao salvar histórico para {id_cliente}: {e}", file=sys.stderr)
 # ... E assim por diante, cole todas as outras funções aqui:
 # encontrar_ou_criar_cliente, atualizar_dados_cliente, buscar_resposta_inteligente, gerar_resposta, extrair_dados_da_conversa, enviar_resposta
+# testeeeeeee
