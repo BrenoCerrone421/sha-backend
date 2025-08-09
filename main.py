@@ -142,9 +142,12 @@ def processar_mensagem_zapi(dados):
 # --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API ---
 def enviar_resposta_zapi(numero_destino, texto_da_resposta):
     print(f"--- ENVIANDO RESPOSTA Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
-    url_api_zapi = f"https://api.z-api.io/v2/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+    # A URL CORRETA E MAIS ATUAL da Z-API para enviar mensagens de texto
+    url_api_zapi = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+
     payload = {"phone": numero_destino, "message": texto_da_resposta}
     headers = {"Content-Type": "application/json", "Client-Token": ZAPI_CLIENT_TOKEN}
+
     try:
         resposta = requests.post(url_api_zapi, json=payload, headers=headers)
         resposta.raise_for_status()
