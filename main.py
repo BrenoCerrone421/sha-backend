@@ -1,4 +1,4 @@
-# main.py (VERSÃO FINAL E COMPLETA - CORRIGIDA)
+# main.py (VERSÃO DEFINITIVA E COMPLETA - COM CLIENT TOKEN)
 
 import os
 import requests
@@ -7,18 +7,21 @@ import re, gspread, redis, json, uuid, sys, pytz, google.generativeai as genai
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
-# --- 1. INICIALIZAÇÃO E CHAVES SECRETAS ---
-app = Flask(__name__)
+# --- 1. CONFIGURAÇÃO E CARREGAMENTO DE CHAVES SECRETAS ---
 print("==============================================")
-print("     INICIANDO AGENTE COMERCIAL SHA v2.0      ")
+print("     INICIANDO AGENTE COMERCIAL SHA v3.0      ")
 print("==============================================")
 
+app = Flask(__name__)
+
+# Carrega TODAS as chaves do ambiente do Render.
 VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 REDIS_URL = os.environ.get("REDIS_URL")
 ZAPI_INSTANCE_ID = os.environ.get("ZAPI_INSTANCE_ID")
 ZAPI_TOKEN = os.environ.get("ZAPI_TOKEN")
+ZAPI_CLIENT_TOKEN = os.environ.get("ZAPI_CLIENT_TOKEN") # <<< CHAVE CORRIGIDA E ADICIONADA
 
 planilha = None
 memoria_cache = None
@@ -79,7 +82,7 @@ def encontrar_ou_criar_cliente(id_canal, nome_social, canal):
     except Exception as e:
         print(f"ERRO em encontrar_ou_criar_cliente: {e}", file=sys.stderr)
         return {}
-
+    
 def carregar_historico(id_cliente):
     if not memoria_cache: return []
     try:
@@ -100,29 +103,6 @@ def gerar_resposta(prompt):
         print(f"Erro na API do Gemini: {e}", file=sys.stderr)
         return "Desculpe, meu cérebro Gemini está fora de sintonia."
 
-def buscar_resposta_inteligente(mensagem_do_usuario):
-    # Futuramente, aqui entrará a lógica de Fluxos.
-    return None
-
-def extrair_dados_da_conversa(texto):
-    # Futuramente, aqui entrará a lógica de extração de dados.
-    return {}
-
-def atualizar_dados_cliente(id_cliente, novos_dados):
-    try:
-        aba_crm = planilha.worksheet("CRM_DATA")
-        celula = aba_crm.find(id_cliente, in_column=1)
-        if not celula: return False
-        cabecalhos = aba_crm.row_values(1)
-        for chave, valor in novos_dados.items():
-            if chave in cabecalhos:
-                coluna = cabecalhos.index(chave) + 1
-                aba_crm.update_cell(celula.row, coluna, valor)
-        return True
-    except Exception as e:
-        print(f"ERRO ao atualizar dados do cliente: {e}", file=sys.stderr)
-        return False
-
 # --- 4. PROCESSADOR DE MENSAGENS ---
 def processar_mensagem_zapi(dados):
     try:
@@ -134,12 +114,11 @@ def processar_mensagem_zapi(dados):
             
             cliente_crm = encontrar_ou_criar_cliente(sender_id, nome_usuario, "WhatsApp")
             id_cliente_interno = cliente_crm.get('ID_Cliente')
-            
             historico = carregar_historico(id_cliente_interno)
             historico.append({"role": "user", "content": pergunta_usuario})
             
             personalidade = ler_personalidade()
-            base_conhecimento = buscar_resposta_inteligente(pergunta_usuario)
+            base_conhecimento = None # Lógica de busca e fluxos virá aqui
             
             prompt_final = f"Sua personalidade é: {personalidade}. Histórico da conversa: {historico}. A última pergunta do cliente foi: \"{pergunta_usuario}\". Responda."
             resposta_ia_texto = gerar_resposta(prompt_final)
@@ -148,18 +127,26 @@ def processar_mensagem_zapi(dados):
             salvar_historico(id_cliente_interno, historico)
             enviar_resposta_zapi(sender_id, resposta_ia_texto)
     except Exception as e:
-        print(f"ERRO GRAVE ao processar mensagem Z-API: {e}", file=sys.stderr)
+        print(f"ERRO ao processar mensagem Z-API: {e}", file=sys.stderr)
 
 # --- 5. FUNÇÃO DE ENVIO DE RESPOSTA ---
 def enviar_resposta_zapi(numero_destino, texto_da_resposta):
     print(f"--- ENVIANDO RESPOSTA Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
+    
     url_api_zapi = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+    
     payload = {"phone": numero_destino, "message": texto_da_resposta}
-    headers = {"Content-Type": "application/json"}
+    
+    # Cabeçalho final e correto, incluindo o Client-Token.
+    headers = {
+        "Content-Type": "application/json",
+        "Client-Token": ZAPI_CLIENT_TOKEN
+    }
+    
     try:
         resposta = requests.post(url_api_zapi, json=payload, headers=headers)
         resposta.raise_for_status()
-        print(f"--- SUCESSO! Resposta enviada via Z-API.")
+        print(f"--- SUCESSO! Resposta enviada via Z-API. Status: {resposta.json()}")
     except requests.exceptions.RequestException as e:
         print(f"❌ ERRO AO ENVIAR PELA Z-API: {e.response.text if e.response else e}", file=sys.stderr)
 
