@@ -1,4 +1,4 @@
-# main.py (VERSÃO FINAL E CORRIGIDA - Z-API + META)
+# main.py (VERSÃO FINAL DE DIAGNÓSTICO)
 
 import os
 import requests
@@ -28,12 +28,14 @@ try:
     planilha = client.open("SHA - Base de Conhecimento")
     print("Conexão com Google Sheets OK.")
 except Exception as e: print(f"ERRO CRÍTICO Sheets: {e}", file=sys.stderr)
+
 try:
     if REDIS_URL:
         memoria_cache = redis.from_url(REDIS_URL, decode_responses=True)
         memoria_cache.ping()
         print("Conexão com Redis OK.")
 except Exception as e: print(f"ERRO CRÍTICO Redis: {e}", file=sys.stderr)
+
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
@@ -42,7 +44,6 @@ if GEMINI_API_KEY:
     except Exception as e: print(f"ERRO CRÍTICO Gemini: {e}", file=sys.stderr)
 
 # --- FUNÇÕES DE LÓGICA DO AGENTE ---
-# (Todas as funções que já criamos e validamos)
 def _ler_aba_como_dicionario(nome_aba):
     try:
         aba = planilha.worksheet(nome_aba)
@@ -74,7 +75,7 @@ def encontrar_ou_criar_cliente(id_canal, nome_social, canal):
     except Exception as e:
         print(f"ERRO em encontrar_ou_criar_cliente: {e}", file=sys.stderr)
         return {}
-    
+
 def carregar_historico(id_cliente):
     if not memoria_cache: return []
     try:
@@ -95,21 +96,6 @@ def gerar_resposta(prompt):
         print(f"Erro na API do Gemini: {e}", file=sys.stderr)
         return "Desculpe, meu cérebro Gemini está fora de sintonia."
 
-# --- ROTA PRINCIPAL DO WEBHOOK ---
-@app.route("/mensagem", methods=["GET", "POST"])
-def receber_mensagem():
-    if request.method == "GET": # Verificação da Meta
-        token_sent = request.args.get("hub.verify_token")
-        return (request.args.get("hub.challenge"), 200) if token_sent == VERIFY_TOKEN else ('Token inválido', 403)
-
-    if request.method == "POST":
-        dados_entrada = request.json
-        print(f"--- DADO BRUTO RECEBIDO: {dados_entrada}")
-        if dados_entrada.get("instanceId"):
-            processar_mensagem_zapi(dados_entrada)
-        # (Lógica para Meta/Instagram viria aqui no futuro)
-        return "OK", 200
-
 # --- PROCESSADOR DE MENSAGENS DA Z-API (WHATSAPP) ---
 def processar_mensagem_zapi(dados):
     try:
@@ -120,15 +106,13 @@ def processar_mensagem_zapi(dados):
 
             if not sender_id or not pergunta_usuario: return
 
-            # LÓGICA COMPLETA DO AGENTE
             cliente_crm = encontrar_ou_criar_cliente(sender_id, nome_usuario, "WhatsApp")
             id_cliente_interno = cliente_crm.get('ID_Cliente')
             historico = carregar_historico(id_cliente_interno)
             historico.append({"role": "user", "content": pergunta_usuario})
             
             personalidade = ler_personalidade()
-            # (A lógica de busca inteligente e fluxos virá aqui)
-            base_conhecimento = None 
+            base_conhecimento = None
             
             prompt_final = f"Sua personalidade é: {personalidade}. Histórico da conversa: {historico}. A última pergunta do cliente foi: \"{pergunta_usuario}\". Responda."
             resposta_ia_texto = gerar_resposta(prompt_final)
@@ -139,13 +123,15 @@ def processar_mensagem_zapi(dados):
     except Exception as e:
         print(f"ERRO ao processar mensagem Z-API: {e}")
 
-# --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API ---
-# main.py (função enviar_resposta_zapi CORRIGIDA E FINAL)
+# --- FUNÇÃO DE ENVIO DE RESPOSTA PELA Z-API (COM DIAGNÓSTICO) ---
 def enviar_resposta_zapi(numero_destino, texto_da_resposta):
-    print(f"--- ENVIANDO RESPOSTA Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
+    print(f"--- PREPARANDO ENVIO Z-API PARA ({numero_destino}): '{texto_da_resposta}'")
     
-    # URL CORRETA, BASEADA NA DOCUMENTAÇÃO OFICIAL DO POSTMAN
     url_api_zapi = f"https://api.z-api.io/instances/{ZAPI_INSTANCE_ID}/token/{ZAPI_TOKEN}/send-text"
+    
+    # --- LINHA DE DIAGNÓSTICO ---
+    print(f"!!! URL DE DESTINO Z-API SENDO CHAMADA: {url_api_zapi}")
+    # -----------------------------
     
     payload = {"phone": numero_destino, "message": texto_da_resposta}
     headers = {"Content-Type": "application/json", "Client-Token": ZAPI_CLIENT_TOKEN}
@@ -156,7 +142,21 @@ def enviar_resposta_zapi(numero_destino, texto_da_resposta):
         print(f"--- STATUS DA RESPOSTA DA Z-API: {resposta.json()}")
     except requests.exceptions.RequestException as e:
         print(f"ERRO ao enviar para API da Z-API: {e.response.text if e.response else e}")
-# (A função enviar_resposta da Meta pode ficar aqui para o futuro)
+
+# --- ROTA PRINCIPAL DO WEBHOOK ---
+@app.route("/mensagem", methods=["GET", "POST"])
+def receber_mensagem():
+    if request.method == "GET":
+        token_sent = request.args.get("hub.verify_token")
+        return (request.args.get("hub.challenge"), 200) if token_sent == VERIFY_TOKEN else ('Token inválido', 403)
+
+    if request.method == "POST":
+        dados_entrada = request.json
+        print(f"--- DADO BRUTO RECEBIDO: {dados_entrada}")
+        if dados_entrada.get("instanceId"):
+            processar_mensagem_zapi(dados_entrada)
+        # (Lógica para Meta viria aqui)
+        return "OK", 200
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)
