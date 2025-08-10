@@ -1,145 +1,139 @@
 import os
 import json
+import time
 import requests
-from flask import Flask, request
 import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime
+from oauth2client.service_account import ServiceAccountCredentials
+from flask import Flask, request
 
-app = Flask(__name__)
+# ================== CONFIG ==================
+GOOGLE_CREDS_FILE = "google_service_account.json"  # credenciais do Google
+SHEET_NAME = "SHA_CRM"  # nome da planilha no Google Sheets
+META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN")  # token de acesso da Meta
+VERIFY_TOKEN = os.getenv("META_VERIFY_TOKEN")  # usado para webhook
+PERSONALIDADE_FILE = "personalidade.txt"
 
-# =========================
-# Carrega personalidade
-# =========================
-try:
-    with open("personalidade.txt", "r", encoding="utf-8") as f:
+# ================== CARREGAR PERSONALIDADE ==================
+if os.path.exists(PERSONALIDADE_FILE):
+    with open(PERSONALIDADE_FILE, "r", encoding="utf-8") as f:
         PERSONALIDADE = f.read().strip()
-except FileNotFoundError:
-    PERSONALIDADE = "Você é um assistente amigável e útil."
+else:
+    PERSONALIDADE = "Sou SHA, seu assistente inteligente."
 
-# =========================
-# Variáveis de ambiente
-# =========================
-PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
-VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-GOOGLE_CREDS_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-
-# =========================
-# Config Google Sheets
-# =========================
-scopes = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-creds = Credentials.from_service_account_info(json.loads(GOOGLE_CREDS_JSON), scopes=scopes)
+# ================== GOOGLE SHEETS ==================
+scope = ["https://spreadsheets.google.com/feeds",
+         "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDS_FILE, scope)
 client = gspread.authorize(creds)
+sheet = client.open(SHEET_NAME).worksheet("CRM_data")
 
-SHEET_NAME = "SuaPlanilha"
-crm_sheet = client.open(SHEET_NAME).worksheet("CRM_data")
-interacoes_sheet = client.open(SHEET_NAME).worksheet("interações")
-
-# =========================
-# Funções auxiliares
-# =========================
-def get_user_profile(user_id):
-    """Obtém nome e foto do perfil do usuário no Meta"""
-    url = f"https://graph.facebook.com/v18.0/{user_id}"
-    params = {
-        "fields": "name,profile_pic",
-        "access_token": PAGE_ACCESS_TOKEN
+# ================== FUNÇÕES AUXILIARES ==================
+def enviar_mensagem_whatsapp(numero, texto):
+    url = f"https://graph.facebook.com/v17.0/{os.getenv('WHATSAPP_PHONE_ID')}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": numero,
+        "text": {"body": texto}
     }
-    r = requests.get(url, params=params)
+    headers = {
+        "Authorization": f"Bearer {META_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    requests.post(url, headers=headers, json=payload)
+
+def obter_dados_meta(user_id):
+    """Pega dados do perfil no Facebook/Instagram"""
+    campos = "name,profile_pic,email,phone,birthday,location"
+    url = f"https://graph.facebook.com/v17.0/{user_id}?fields={campos}&access_token={META_ACCESS_TOKEN}"
+    r = requests.get(url)
     if r.status_code == 200:
         return r.json()
     return {}
 
-def send_message(recipient_id, message_text):
-    """Envia mensagem via API Graph"""
-    url = f"https://graph.facebook.com/v18.0/me/messages"
-    payload = {
-        "recipient": {"id": recipient_id},
-        "message": {"text": message_text}
-    }
-    headers = {"Content-Type": "application/json"}
-    requests.post(url, params={"access_token": PAGE_ACCESS_TOKEN}, headers=headers, json=payload)
-
-def gemini_reply(user_message):
-    """Gera resposta usando Gemini API com a personalidade"""
-    prompt = f"{PERSONALIDADE}\nUsuário: {user_message}\nResposta:"
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    body = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
-    }
-    r = requests.post(url, headers=headers, json=body)
-    try:
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except:
-        return "Desculpe, tive um problema ao processar sua mensagem."
-
-def registrar_crm(sender_id, nome="", telefone="", email="", foto=""):
-    """Adiciona ou atualiza dados no CRM"""
-    registros = crm_sheet.get_all_records()
-    existente = next((r for r in registros if str(r.get("ID_Cliente")) == str(sender_id)), None)
-    if not existente:
-        crm_sheet.append_row([
-            sender_id, nome, "", "", "", "", "", "", "", email,
-            telefone, telefone, "", "", "", "", "", foto
-        ])
-
-def registrar_interacao(sender_id, canal, resumo):
-    """Salva interação na planilha"""
-    interacoes_sheet.append_row([
-        f"INT-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        sender_id,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        canal,
-        resumo
+def salvar_no_crm(dados):
+    """Salva/atualiza cliente no CRM"""
+    clientes = sheet.get_all_records()
+    for i, cliente in enumerate(clientes, start=2):
+        if cliente["user_id"] == dados.get("user_id"):
+            sheet.update(f"A{i}:F{i}", [[
+                dados.get("user_id", ""),
+                dados.get("nome", ""),
+                dados.get("telefone", ""),
+                dados.get("email", ""),
+                dados.get("aniversario", ""),
+                dados.get("localizacao", "")
+            ]])
+            return
+    sheet.append_row([
+        dados.get("user_id", ""),
+        dados.get("nome", ""),
+        dados.get("telefone", ""),
+        dados.get("email", ""),
+        dados.get("aniversario", ""),
+        dados.get("localizacao", "")
     ])
 
-# =========================
-# Rotas
-# =========================
-@app.route("/webhook", methods=["GET"])
-def verify_webhook():
-    """Valida Webhook com Meta"""
-    if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.verify_token") == VERIFY_TOKEN:
-        return request.args.get("hub.challenge")
-    return "Erro de verificação", 403
+def gerar_resposta(mensagem_usuario):
+    """Responde usando a personalidade"""
+    return f"{PERSONALIDADE}\n\n{mensagem_usuario}"
 
-@app.route("/webhook", methods=["POST"])
-def handle_webhook():
-    """Recebe mensagens do Messenger/Instagram"""
-    data = request.json
-    if data.get("entry"):
-        for entry in data["entry"]:
-            # Messenger/Instagram events
-            if "messaging" in entry:
-                for event in entry["messaging"]:
-                    sender_id = event["sender"]["id"]
+# ================== FLASK WEBHOOK ==================
+app = Flask(__name__)
 
-                    if "message" in event and "text" in event["message"]:
-                        user_message = event["message"]["text"]
+@app.route("/webhook", methods=["GET", "POST"])
+def webhook():
+    if request.method == "GET":
+        if request.args.get("hub.verify_token") == VERIFY_TOKEN:
+            return request.args.get("hub.challenge")
+        return "Token inválido", 403
 
-                        # Coleta dados do perfil
-                        perfil = get_user_profile(sender_id)
-                        nome = perfil.get("name", "Desconhecido")
-                        foto = perfil.get("profile_pic", "")
+    data = request.get_json()
+    print("📩 Recebido:", json.dumps(data, indent=2, ensure_ascii=False))
 
-                        # Gera resposta com Gemini
-                        resposta = gemini_reply(user_message)
+    try:
+        entry = data["entry"][0]
+        changes = entry.get("changes") or []
+        messaging = entry.get("messaging") or []
 
-                        # Envia resposta
-                        send_message(sender_id, resposta)
+        # Facebook/Instagram
+        if changes:
+            for change in changes:
+                user_id = change["value"]["from"]["id"]
+                mensagem = change["value"].get("message", "")
+                dados_perfil = obter_dados_meta(user_id)
+                salvar_no_crm({
+                    "user_id": user_id,
+                    "nome": dados_perfil.get("name"),
+                    "telefone": dados_perfil.get("phone"),
+                    "email": dados_perfil.get("email"),
+                    "aniversario": dados_perfil.get("birthday"),
+                    "localizacao": dados_perfil.get("location", {}).get("name")
+                })
+                resposta = gerar_resposta(mensagem)
+                enviar_mensagem_whatsapp(user_id, resposta)
 
-                        # Registra no Sheets
-                        registrar_crm(sender_id, nome=nome, foto=foto)
-                        registrar_interacao(sender_id, "Messenger/Instagram", user_message)
+        # WhatsApp
+        if messaging:
+            for message in messaging:
+                numero = message["sender"]["id"]
+                texto = message["message"]["text"]
+                dados_perfil = obter_dados_meta(numero)
+                salvar_no_crm({
+                    "user_id": numero,
+                    "nome": dados_perfil.get("name"),
+                    "telefone": dados_perfil.get("phone"),
+                    "email": dados_perfil.get("email"),
+                    "aniversario": dados_perfil.get("birthday"),
+                    "localizacao": dados_perfil.get("location", {}).get("name")
+                })
+                resposta = gerar_resposta(texto)
+                enviar_mensagem_whatsapp(numero, resposta)
+
+    except Exception as e:
+        print("❌ Erro no processamento:", e)
 
     return "ok", 200
 
+# ================== RODAR ==================
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
